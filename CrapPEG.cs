@@ -12,6 +12,7 @@ namespace CPEG {
 
         public int width;
         public int height;
+        public int screenArea; 
         
         public bool sequenceStarted = false;
         public bool isLooping = false;
@@ -178,6 +179,8 @@ namespace CPEG {
             width = _reader.GetBits(12);
             height = _reader.GetBits(12);
 
+            screenArea = width * height;
+
             // Skip over a SOME crap we don't need.
             _reader.AdvanceBits(4); 
             
@@ -230,49 +233,67 @@ namespace CPEG {
 
         }
 
-        // Having massive troubles getting colour, so there is not colour ATM!
         public void YCbCrToRGB()
         {
             int yIndex = 0;
-            //int cIndex = 0; would be for colour IF IT WORKED!!!!! I hate how the colour conversion works, so confusing, so hard.
+            int cIndex = 0; 
+
+            int padding = 2;
         
-            byte r = 255, g = 255, b = 255; // Placeholders for now.
-            byte cy, cr = 128, cb = 128; // Best values for a decent greyscale image.
+            byte cy, cr = 128, cb = 128;
 
-            for (int i = 0; i < width * height; i++) {
+            /*
+                This is based around an eariler version of JS-MPEG!
+
+                Much less effiecent but kind of work!
+
+                https://github.com/phoboslab/jsmpeg/blob/170a24e110ffc87afe9406b7bbd471b3f2d3d4f7/jsmpg.js#L356
+            */
+            for (int pixel = 0; pixel < screenArea; pixel++) {
                 
+                if ((pixel % width % padding == 0) && pixel / width % padding == 0)
+                {
+                    cb = currentCb[cIndex];
+                    cr = currentCr[cIndex];
+
+                    cIndex++;
+                }
+
                 cy = currentY[yIndex++];
-
-                r = (byte)(cr + ((cr * 103) >> 8) - 179);
-                g = (byte)(((cb * 88) >> 8) - 44 + ((cr * 183) >> 8) - 91);
-                b = (byte)(cb + ((cb * 198) >> 8) - 227);
                 
-                currentRGBA[i] = new Color((byte)(cy + r), (byte)(cy - g), (byte)(cy + b));
+                int blue = cb - 128;
+                int red = cr - 128;
+
+                int r = cy + (int)(1.4f * red);
+                int g = cy - (int)(-0.343f * blue + 0.711f * red);
+                int b = cy + (int)(1.765f * blue);
+                
+                currentRGBA[pixel] = new Color((byte)r, (byte)g, (byte)b);
             }
         }
 
         public void DecodePicture() {
             _reader.AdvanceBits(10);
-            this.pictureCodingType = _reader.GetBits(3);
+            pictureCodingType = _reader.GetBits(3);
            _reader.AdvanceBits(16); 
             
             // Skip B and D frames or unknown coding type
-            if(this.pictureCodingType <= 0 || this.pictureCodingType >= CrapPEGConstants.PICTURE_TYPE_B ) {
+            if(pictureCodingType <= 0 || pictureCodingType >= CrapPEGConstants.PICTURE_TYPE_B ) {
                 return;
             }
             
             // full_pel_forward, forward_f_code
             if(pictureCodingType == CrapPEGConstants.PICTURE_TYPE_P ) {
-                this.fullPelForward = _reader.GetBits(1) != 1;
-                this.forwardFCode =  _reader.GetBits(3);
+                fullPelForward = _reader.GetBits(1) != 1;
+                forwardFCode =  _reader.GetBits(3);
                
-                if( this.forwardFCode == 0 ) {
+                if( forwardFCode == 0 ) {
                     // Ignore picture with zero forward_f_code
                     return;
                 }
 
-                this.forwardRSize = this.forwardFCode - 1;
-                this.forwardF = 1 << this.forwardRSize;
+                forwardRSize = forwardFCode - 1;
+                forwardF = 1 << forwardRSize;
             }
             
             var code = 0;
@@ -293,19 +314,19 @@ namespace CPEG {
             YCbCrToRGB();
             
             // If this is a reference picutre then rotate the prediction pointers
-            if( this.pictureCodingType == CrapPEGConstants.PICTURE_TYPE_I || this.pictureCodingType == CrapPEGConstants.PICTURE_TYPE_P ) {
+            if( pictureCodingType == CrapPEGConstants.PICTURE_TYPE_I || pictureCodingType == CrapPEGConstants.PICTURE_TYPE_P ) {
                 byte[] 
-                    tmpY = this.forwardY,
-                    tmpCr = this.forwardCr,
-                    tmpCb = this.forwardCb;
+                    tmpY = forwardY,
+                    tmpCr = forwardCr,
+                    tmpCb = forwardCb;
 
-                this.forwardY = this.currentY;
-                this.forwardCr = this.currentCr;
-                this.forwardCb = this.currentCb;
+                forwardY = currentY;
+                forwardCr = currentCr;
+                forwardCb = currentCb;
 
-                this.currentY = tmpY;
-                this.currentCr = tmpCr;
-                this.currentCb = tmpCb;
+                currentY = tmpY;
+                currentCr = tmpCr;
+                currentCb = tmpCb;
             }
         }
 
@@ -669,7 +690,7 @@ namespace CPEG {
                 }
                 
                 // Dequantize + premultiply
-                blockData[0] <<= (3 + 5);
+                blockData[0] <<= 3 + 5;
                 
                 quantMatrix = intraQuantMatrix;
                 n = 1;
@@ -679,8 +700,8 @@ namespace CPEG {
             }
             
             // Decode AC coefficients (+DC for non-intra)
-            var level = 0;
-            while( true ) {
+            int level = 0;
+            while(true) {
                
                 int run = 0,
                     coeff = ReadCode(CrapPEGConstants.DCT_COEFF);
@@ -689,7 +710,7 @@ namespace CPEG {
                     break;
                 }
 
-                if( coeff == 0xffff ) {
+                if(coeff == 0xffff ) {
                     run = _reader.GetBits(6);
                     level = _reader.GetBits(8);
 
@@ -712,14 +733,9 @@ namespace CPEG {
                 
                 n += run;
 
-                int dezigZagged = 0;
-                if(n == 64) {
-                    n = 64;
-                }
-
-                if(n < CrapPEGConstants.ZIG_ZAG.Length) {
-                  dezigZagged = CrapPEGConstants.ZIG_ZAG[n];
-                }
+                int dezigZagged = 12;
+                if(n < 64)
+                    dezigZagged = CrapPEGConstants.ZIG_ZAG[n];
 
                 n++;
                 
@@ -902,10 +918,10 @@ namespace CPEG {
                     DecodeSequenceHeader();
                 break;
                 case CrapPEGConstants.START_PICTURE:
-                    if(isPlaying)
+                    if(isPlaying) 
                         NextFrameScheduler();
                     
-                        DecodePicture();
+                    DecodePicture();
                 break;
                 case CrapPEGConstants.NOT_FOUND:
                     Stop();
@@ -922,13 +938,15 @@ namespace CPEG {
 
         public void NextFrameScheduler()
         {
-            double stallTime = (1000 / frameRate) -lateTime; 
+            double stallTime = (1000 / frameRate) - lateTime; 
             targetTime = DateTime.Now.Millisecond + stallTime; 
 
             if(stallTime < 18) // if the stalltime is less than 18 (milliseconds iirc) we go to the next time
                 NextFrame();
-        } 
-
-
+            else {
+                
+            }
+                
+        }
     }
 }
