@@ -25,8 +25,8 @@ I used Raylib for output, but anything will work.
 Most of the credit has to be to anyone who worked on JS-MPEG, since this is a port really (espically v2).
 
 # Major Issues
-- Videos are in greyscale, this is due to me being an idiot and not knowing how to combine the luma and chroma arrays, I have spent SOOOO long on it, if anyone
-can help that would be awsome.
+~~- Videos are in greyscale, this is due to me being an idiot and not knowing how to combine the luma and chroma arrays, I have spent SOOOO long on it, if anyone
+can help that would be awsome.~~ 
 - Videos with interframes (a GOP-Size of more than 1) are broken, cause crashes. Encode with 'ffmpeg -i input.mp4 -f mpeg1video -g 1 -q:v 1 -vf "crop=iw-mod(iw\,2):ih-mod(ih\,2)" example.mpg` to be safe. It breaks in the decode block and saved from fully crashing in a if statmet.
 - This is hella unoptimized, yeah HD video ain't gonna work well, I AM AN AWFUL PROGRAMMER. Videos work best at 240p, VCD res (hey thats MPEG-1 was built for).
 - All other issues from this built of JMPEG (expect resultion, I handle video displaying differently so maybe).
