@@ -1,0 +1,2 @@
+﻿using CPEG;
+new Main();
